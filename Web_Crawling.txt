@@ -1,0 +1,92 @@
+import gzip
+import shutil
+import os
+import requests
+import pandas as pd
+from warcio.archiveiterator import ArchiveIterator
+from urllib.request import Request, urlopen
+import threading
+
+folder_name = "Nov_Dec"
+file_type = "warc"
+
+def step1_webscrap(folder_name,file_type):
+    with gzip.open('C:\\Users\\trobi\\OneDrive\\Desktop\\Web_Crawl_Python\\'+folder_name+'\\'+file_type+'.paths.gz', 'rb') as f_in:
+            with open('C:\\Users\\trobi\\OneDrive\\Desktop\\Web_Crawl_Python\\'+folder_name+'\\'+file_type+'.txt', 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+
+def step3_webscrap(i,line,folder_name):
+    lv_file_name = "output"+str(i)
+    url = "https://commoncrawl.s3.amazonaws.com/"+line
+    url = url.replace("\n","")
+    folder_name1 = "C:\\Users\\trobi\\OneDrive\\Desktop\\Web_Crawl_Python\\"+folder_name+"\\third_step\\"
+    local_filename = url.split('/')[-1]
+    path = os.path.join(folder_name1, local_filename)
+    with requests.get(url, stream=True) as r:
+        with open(path, 'wb') as f:
+            shutil.copyfileobj(r.raw, f)
+    #file.close()
+    lv_new_path = 'C:\\Users\\trobi\\OneDrive\\Desktop\\Web_Crawl_Python\\Nov_Dec\\fourth_step\\'+local_filename.replace('.','_')+'.warc'
+
+    with gzip.open(path, 'rb') as f_in:
+        with open(lv_new_path, 'wb') as f_out:
+            shutil.copyfileobj(f_in, f_out)
+    #file.close()
+    return (lv_new_path,lv_file_name)
+
+def step5_7_webscrap(new_path,lv_file_name,folder_name,file_type):
+    with open(new_path, 'rb') as stream:
+        df1 = pd.DataFrame(columns=["link_url", "priority", "file_type", "month"])
+        for record in ArchiveIterator(stream):
+            # i = i+1
+            if record.rec_type == 'response':
+                lv_url = record.rec_headers.get_header('WARC-Target-URI')
+                try:
+                    ## Step 6 Reading the page from the URL links and store in a string
+                    req = Request(lv_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    webpage = str(urlopen(req).read())
+                except Exception:
+                    # print("Exception in Reading URL Webpage ",sys.exc_info()[0]," "+lv_url)
+                    webpage = None
+                    priority = "error"
+                    pass
+                try:
+                    # Step 7 Matching the string with covid and economics
+                    if ' covid' in webpage and ' economics ' in webpage:
+                        priority = "top"
+                        print("Successfull in Reading link top")
+                    elif ' covid' in webpage or ' economics ' in webpage:
+                        priority = "medium"
+                        print("Successfull in Reading link med")
+                    else:
+                        priority = "low"
+                        print("Successfull in Reading link low")
+                except Exception:
+                    # print("Exception in Matching the Webpage",sys.exc_info()[0]," " + lv_url)
+                    priority = "error"
+                    pass
+                df2 = pd.DataFrame({"link_url": [lv_url],
+                                    "priority": [priority],
+                                    "file_type": [file_type],
+                                    "month": [folder_name]})
+                df1 = pd.concat([df1, df2], ignore_index=True, sort=False)
+        df1.to_excel("C:\\Users\\trobi\\OneDrive\\Desktop\\Web_Crawl_Python\\"+folder_name+"\\" + lv_file_name + ".xlsx")
+
+def step2_webscrap(folder_name,file_type):
+    file = open('C:\\Users\\trobi\\OneDrive\\Desktop\\Web_Crawl_Python\\'+folder_name+'\\'+file_type+'.txt', 'r')
+    lines = file.readlines()
+    i = 0
+    for line in lines:
+        i = i + 1
+        lv_out_stp3 = step3_webscrap(i,line,folder_name)
+        step5_7_webscrap(lv_out_stp3[0],lv_out_stp3[1],folder_name,file_type)
+
+x = threading.Thread(target=step1_webscrap, args=(folder_name,file_type,))
+x.start()
+
+
+y = threading.Thread(target=step2_webscrap, args=(folder_name,file_type,))
+y.start()
+
+x.join()
+y.join()
